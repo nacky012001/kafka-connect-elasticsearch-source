@@ -48,11 +48,12 @@ public class ElasticSourceTask extends SourceTask {
     private static final String INDEX = "index";
     static final String POSITION = "position";
     static final String POSITION_SECONDARY = "position_secondary";
-
+    private static final int MAX_STOP_TRY_COUNT = 10;
 
     private final OffsetSerializer offsetSerializer = new OffsetSerializer();
     private SchemaConverter schemaConverter;
     private StructConverter structConverter;
+    private int stopTryCount = 0;
 
     private ElasticSourceTaskConfig config;
     private ElasticConnection es;
@@ -212,7 +213,7 @@ public class ElasticSourceTask extends SourceTask {
                     
                     synchronized (lock) {
                         lock.set(false);
-                        lock.notify();
+                        lock.notifyAll();
                     }
                 }else{
                     logger.info("cannot acquire lock. skipped index: {}", index);
@@ -222,7 +223,7 @@ public class ElasticSourceTask extends SourceTask {
             logger.error("error", e);
             synchronized (lock) {
                 lock.set(false);
-                lock.notify();
+                lock.notifyAll();
             }
         } 
 
@@ -297,23 +298,29 @@ public class ElasticSourceTask extends SourceTask {
 
     //will be called by connect with a different thread than poll thread
     public void stop() {
-        logger.debug("Closing task");
+        logger.debug("Stopping task");
+
+        stopTryCount = 0;
 
         synchronized (lock) {
-            while(!lock.compareAndSet(false, true)) {
+            while(stopTryCount++ < MAX_STOP_TRY_COUNT && !lock.compareAndSet(false, true)) {
                 try{
-                    logger.debug("Waiting for closing task");
-                    lock.wait();
+                    logger.debug("Waiting for stopping task. Try count: {}", stopTryCount);
+                    lock.wait(5000);
                 } catch (Exception e) {
                     logger.error("error", e);
                 }
             }
             
             if (es != null) {
+                if(stopTryCount >= MAX_STOP_TRY_COUNT){
+                    logger.warn("Reached max stop try count. Force to stop.");
+                }
+
                 es.closeQuietly();
             }
         }
 
-        logger.debug("Closed task");
+        logger.debug("Stopped task");
     }
 }
