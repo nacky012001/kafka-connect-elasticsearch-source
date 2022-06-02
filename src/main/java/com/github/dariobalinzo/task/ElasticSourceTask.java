@@ -303,12 +303,10 @@ public class ElasticSourceTask extends SourceTask {
         stopTryCount = 0;
 
         synchronized (lock) {
-            while(!lock.compareAndSet(false, true)) {
+            while(stopTryCount++ < MAX_STOP_TRY_COUNT && !lock.compareAndSet(false, true)) {
                 try{
-                    if(stopTryCount++ < MAX_STOP_TRY_COUNT){
-                        logger.debug("Waiting for stopping task. Try count: {}", stopTryCount);
-                        lock.wait(5000);
-                    }
+                    logger.debug("Waiting for stopping task. Try count: {}", stopTryCount);
+                    lock.wait(5000);
                 } catch (Exception e) {
                     logger.error("error", e);
                 }
